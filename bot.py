@@ -17,8 +17,8 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 TICKET_CAT_ID = int(os.getenv("TICKET_CATEGORY_ID"))
 STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID"))
 
-# Coupon role config (optional - falls back to staff role if not set)
-COUPON_ROLE_ID = 1507791059567120527  # <-- PUT YOUR COUPON ROLE ID HERE (e.g., 1234567890123456789)
+# Coupon role config — ONLY this role can use /coupon
+COUPON_ROLE_ID = 1507791059567120527  # <-- PUT YOUR COUPON ROLE ID HERE
 
 # Stock notifier config (optional - if not set, stock monitoring is disabled)
 NOTIFY_GUILD_ID = int(os.getenv("NOTIFY_GUILD_ID", str(GUILD_ID)))
@@ -194,16 +194,9 @@ class SellAuthAPI:
         async with aiohttp.ClientSession() as session:
             url = f"{SELLAUTH_BASE}/shops/{self.shop_id}/coupons"
 
-            # Try multiple formats to see what SellAuth accepts
-            # Format 1: Raw decimal (0.03)
-            # Format 2: Cents as integer (3)
-            # Format 3: Cents as string ("3")
-
             formats_to_try = []
             if discount_type == "fixed":
-                # Try raw decimal first
                 formats_to_try.append(str(float(discount)))
-                # Try cents as integer
                 formats_to_try.append(str(int(float(discount) * 100)))
             else:
                 formats_to_try.append(str(discount))
@@ -309,7 +302,6 @@ def extract_product_data(product):
     product_url = None
     slug = None
 
-    # First, try to find a slug from API response fields
     for key in ["slug", "url_slug", "permalink", "handle", "seo_slug", "product_slug", "path", "url", "link"]:
         if key in product and product[key] and isinstance(product[key], str):
             val = product[key]
@@ -320,25 +312,21 @@ def extract_product_data(product):
                 product_url = f"{SHOP_URL}{val}"
                 break
             else:
-                # Only use API slug if it's not just a number
                 if not val.isdigit():
                     slug = val
                 break
 
-    # Always generate a name-based slug if we don't have a valid one yet
     if not slug and name and name != "Unknown Product":
         import re
         slug = re.sub(r"[^a-zA-Z0-9\s-]", "", name.lower())
         slug = re.sub(r"[\s]+", "-", slug)
         slug = slug.strip('-')
 
-    # Build the product URL using the slug (name-based or API)
     if slug:
         product_url = f"{SHOP_URL}/product/{slug}"
     else:
         product_url = f"{SHOP_URL}/product/{product_id}"
 
-    # Final fallback
     if not product_url:
         product_url = f"{SHOP_URL}/product/{product_id}"
         print(f"[DEBUG] Fallback URL used: {product_url}")
@@ -648,7 +636,6 @@ async def create_replacement_ticket(interaction: discord.Interaction, invoice_da
     channel = await guild.create_text_channel(name=channel_name[:100], category=category,
                                                overwrites=overwrites, reason=f"Replacement ticket by {user}")
 
-    # Store invoice ID for this channel so /invoice works
     print(f"[DEBUG] Storage: invoice_hash param='{invoice_hash}'")
     stored_invoice = invoice_hash
     if not stored_invoice and invoice_data and "invoice" in invoice_data:
@@ -696,13 +683,10 @@ async def create_replacement_ticket(interaction: discord.Interaction, invoice_da
     embed.add_field(name="Language", value=lang, inline=True)
     embed.add_field(name="Purchase date", value=date_str, inline=True)
 
-    # Product line: "Netflix Lifetime [UHQ] · 0.45€ · 1 account"
     embed.add_field(name="Product", value=f"{product_name} · {price} · 1 account", inline=False)
 
-    # Account details - clean inline code block, no label
     embed.add_field(name="​", value=f"```{account_text[:1000]}```", inline=False)
 
-    # Staff line with lightning bolt, no field label
     time_str = datetime.now().strftime("%H:%M")
     staff_line = f"⚡ {staff_role.mention if staff_role else '@staff'} | 8.0 · heute um {time_str} Uhr"
     embed.add_field(name="​", value=staff_line, inline=False)
@@ -721,7 +705,7 @@ class StaffActionView(ui.View):
     def __init__(self, channel_id):
         super().__init__(timeout=None)
         self.channel_id = channel_id
-        self.claimed_by = None  # Track who claimed
+        self.claimed_by = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
@@ -737,7 +721,6 @@ class StaffActionView(ui.View):
         embed = interaction.message.embeds[0] if interaction.message.embeds else None
 
         if self.claimed_by is None:
-            # Not claimed yet -> Claim it
             self.claimed_by = interaction.user.id
             button.label = "Unclaim"
             button.style = discord.ButtonStyle.secondary
@@ -752,7 +735,6 @@ class StaffActionView(ui.View):
             await interaction.response.send_message(f"✅ Ticket claimed by {interaction.user.mention}", ephemeral=True)
 
         elif self.claimed_by == interaction.user.id:
-            # Already claimed by this user -> Unclaim it
             self.claimed_by = None
             button.label = "Claim"
             button.style = discord.ButtonStyle.success
@@ -767,7 +749,6 @@ class StaffActionView(ui.View):
             await interaction.response.send_message(f"⚪ Ticket unclaimed by {interaction.user.mention}", ephemeral=True)
 
         else:
-            # Claimed by someone else
             await interaction.response.send_message("❌ This ticket is already claimed by someone else.", ephemeral=True)
 
     @ui.button(label="Hold", style=discord.ButtonStyle.primary, emoji="⏸️", custom_id="hold_btn")
@@ -890,14 +871,12 @@ async def monitor_stock():
             current_products[pid] = data
             print(f"[STOCK] Product: {data['name']} | Stock: {data['stock']} | Price: {data['price']} {data['currency']}")
 
-        # Skip first run (baseline)
         if not previous_product_ids:
             previous_products = current_products.copy()
             previous_product_ids = current_product_ids.copy()
             print(f"[INFO] Stock baseline set: {len(current_products)} products")
             return
 
-        # Check for new products
         new_products = current_product_ids - previous_product_ids
         for pid in new_products:
             data = current_products[pid]
@@ -905,7 +884,6 @@ async def monitor_stock():
             await channel.send(embed=embed)
             print(f"[NOTIFY] New product: {data['name']}")
 
-        # Check for stock changes
         for pid in current_product_ids & previous_product_ids:
             old_data = previous_products[pid]
             new_data = current_products[pid]
@@ -957,7 +935,6 @@ async def on_ready():
     await bot.tree.sync(guild=guild)
     print("✅ Slash commands synced")
 
-    # Start stock monitoring if configured
     if NOTIFY_CHANNEL_ID and not monitor_stock.is_running():
         monitor_stock.start()
         print(f"🔍 Stock monitoring started (channel: {NOTIFY_CHANNEL_ID}, interval: {POLL_INTERVAL}s)")
@@ -1003,14 +980,12 @@ coupons = {}  # coupon_code -> {amount, user_id, created_at, used}
 
 @bot.tree.command(name="invoice", description="Show invoice checkout link for this ticket (Staff only)", guild=discord.Object(id=GUILD_ID))
 async def invoice_command(interaction: discord.Interaction):
-    # Check if user has staff role
     staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
     if staff_role and staff_role not in interaction.user.roles:
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Only staff can use this command.", ephemeral=True)
             return
 
-    # Get invoice ID from this channel
     channel_id = interaction.channel_id
     print(f"[DEBUG] /invoice called in channel {channel_id}")
     print(f"[DEBUG] channel_invoices contents: {channel_invoices}")
@@ -1023,7 +998,6 @@ async def invoice_command(interaction: discord.Interaction):
         )
         return
 
-    # Build the checkout URL
     checkout_url = f"https://vortexm4rket.mysellauth.com/checkout/{invoice_id}"
 
     embed = discord.Embed(
@@ -1040,42 +1014,29 @@ async def invoice_command(interaction: discord.Interaction):
     embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
     embed.set_footer(text="VortexMarket Invoice System")
 
-    # Send as ephemeral (only visible to the staff member who ran it)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 def has_coupon_role(interaction: discord.Interaction) -> bool:
-    """Check if user has the coupon role or is an administrator."""
+    """Check if user has the EXACT coupon role. Admins and other high roles are BLOCKED unless they have this role."""
     user = interaction.user
     guild = interaction.guild
 
-    print(f"[COUPON CHECK] User: {user} (ID: {user.id})")
-    print(f"[COUPON CHECK] User roles: {[r.name for r in user.roles]}")
-    print(f"[COUPON CHECK] Is Administrator: {user.guild_permissions.administrator}")
-    print(f"[COUPON CHECK] COUPON_ROLE_ID set to: {COUPON_ROLE_ID}")
+    # NO bypass for administrators, moderators, or anyone else
+    # ONLY the specific COUPON_ROLE_ID grants access
 
-    # Administrators always have access
-    if user.guild_permissions.administrator:
-        print(f"[COUPON CHECK] ALLOWED - User is Administrator")
-        return True
-
-    # Must have the specific coupon role - no fallback to staff role
     if COUPON_ROLE_ID:
         coupon_role = guild.get_role(COUPON_ROLE_ID)
-        print(f"[COUPON CHECK] Coupon role lookup: {coupon_role}")
         if coupon_role:
             has_role = coupon_role in user.roles
-            print(f"[COUPON CHECK] User has coupon role '{coupon_role.name}': {has_role}")
-            if has_role:
-                print(f"[COUPON CHECK] ALLOWED - User has coupon role")
-                return True
+            print(f"[COUPON CHECK] User {user} has role '{coupon_role.name}': {has_role}")
+            return has_role
         else:
             print(f"[COUPON CHECK] ERROR: Coupon role with ID {COUPON_ROLE_ID} not found in guild!")
+            return False
     else:
         print(f"[COUPON CHECK] ERROR: COUPON_ROLE_ID is not set!")
-
-    print(f"[COUPON CHECK] DENIED - User lacks coupon role and is not admin")
-    return False
+        return False
 
 
 @bot.tree.command(name="coupon", description="Generate a replacement coupon for a user (Coupon role only)", guild=discord.Object(id=GUILD_ID))
@@ -1085,15 +1046,13 @@ def has_coupon_role(interaction: discord.Interaction) -> bool:
     prefix="Coupon prefix (default: REPLACE)"
 )
 async def coupon_command(interaction: discord.Interaction, user: discord.User, amount: float, prefix: str = "REPLACE"):
-    # Check if user has coupon role
     if not has_coupon_role(interaction):
         await interaction.response.send_message(
-            "❌ You don't have permission to use this command. Requires the specific Coupon role or Administrator privileges.", 
+            "❌ You don't have permission to use this command. Only users with the Coupon role can generate coupons.", 
             ephemeral=True
         )
         return
 
-    # Generate random coupon code
     import random
     import string
     from datetime import datetime, timedelta
@@ -1103,7 +1062,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
 
     print(f"[DEBUG] Creating coupon: {coupon_code} for amount: {amount}")
 
-    # CREATE COUPON ON SELLAUTH API
     coupon_data = await sellauth.create_coupon(
         code=coupon_code,
         discount=amount,
@@ -1121,7 +1079,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
 
     print(f"[DEBUG] Coupon created successfully: {coupon_data}")
 
-    # Store coupon locally for tracking
     coupons[coupon_code] = {
         "amount": amount,
         "user_id": user.id,
@@ -1131,7 +1088,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
         "sellauth_id": coupon_data.get("id", "unknown")
     }
 
-    # Build DM embed matching the screenshot format
     embed = discord.Embed(
         title="🎫 Your Replacement Coupon — VortexMarket",
         description="Your replacement request has been approved. Here is your coupon code to use at checkout.",
@@ -1142,7 +1098,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
     embed.add_field(name="🎫 Coupon value", value=f"€{amount:.2f}", inline=False)
     embed.add_field(name="🎟️ Coupon code", value=f"`{coupon_code}`", inline=False)
 
-    # How to use it
     how_to = (
         "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)\n"
         "2. Add your products to the cart\n"
@@ -1150,7 +1105,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
     )
     embed.add_field(name="📋 How to use it", value=how_to, inline=False)
 
-    # Footer info
     valid_until = datetime.now() + timedelta(days=30)
     embed.add_field(
         name="ℹ️ Info",
@@ -1158,7 +1112,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
         inline=False
     )
 
-    # Single use warning
     warning_embed = discord.Embed(
         title="⚠️ Single Use Warning",
         description="This coupon is **single use only**. Once redeemed, it cannot be used again.\nUse it wisely!",
@@ -1166,13 +1119,9 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
         timestamp=datetime.now()
     )
 
-    # Buttons
-
-    # Send DM to user
     try:
         await user.send(embeds=[embed, warning_embed])
 
-        # Confirm to staff
         await interaction.response.send_message(
             f"✅ Coupon `€{amount:.2f}` sent to {user.mention}!\nCode: `{coupon_code}`",
             ephemeral=True
