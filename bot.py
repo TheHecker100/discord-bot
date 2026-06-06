@@ -17,6 +17,9 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 TICKET_CAT_ID = int(os.getenv("TICKET_CATEGORY_ID"))
 STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID"))
 
+# Coupon role config (optional - falls back to staff role if not set)
+COUPON_ROLE_ID = 1507791059567120527  # <-- PUT YOUR COUPON ROLE ID HERE (e.g., 1234567890123456789)
+
 # Stock notifier config (optional - if not set, stock monitoring is disabled)
 NOTIFY_GUILD_ID = int(os.getenv("NOTIFY_GUILD_ID", str(GUILD_ID)))
 NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", "0")) if os.getenv("NOTIFY_CHANNEL_ID") else 0
@@ -366,7 +369,8 @@ def create_new_product_embed(data):
 
     embed = discord.Embed(
         title=f"{name} Added",
-        description=f"Our product **{name}** has just been added!\n[Buy Now]({product_url})",
+        description=f"Our product **{name}** has just been added!
+[Buy Now]({product_url})",
         color=0x5865F2,
         timestamp=datetime.now()
     )
@@ -382,7 +386,8 @@ def create_new_product_embed(data):
             else:
                 variant_lines.append(str(v))
         if variant_lines:
-            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="\n".join(variant_lines), inline=False)
+            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="
+".join(variant_lines), inline=False)
     else:
         embed.add_field(name="📦 Variant", value=name, inline=True)
         embed.add_field(name="💰 Price", value=f"{price} {currency}", inline=True)
@@ -405,7 +410,8 @@ def create_restock_embed(data, old_stock, new_stock):
 
     embed = discord.Embed(
         title=f"{name} Restocked",
-        description=f"Our product **{name}** has just been restocked!\n[Buy Now]({product_url})",
+        description=f"Our product **{name}** has just been restocked!
+[Buy Now]({product_url})",
         color=0x57F287,
         timestamp=datetime.now()
     )
@@ -421,7 +427,8 @@ def create_restock_embed(data, old_stock, new_stock):
             else:
                 variant_lines.append(str(v))
         if variant_lines:
-            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="\n".join(variant_lines), inline=False)
+            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="
+".join(variant_lines), inline=False)
     else:
         embed.add_field(name="📦 Variant", value=name, inline=True)
         embed.add_field(name="💰 Price", value=f"{price} {currency}", inline=True)
@@ -523,7 +530,8 @@ class ReplacementInvoiceModal(ui.Modal, title="Replacement Request"):
 
         if not invoice_data or not invoice_data["invoice"]:
             await interaction.followup.send(
-                "❌ **Order not found.** Please check your Invoice ID and try again.\n"
+                "❌ **Order not found.** Please check your Invoice ID and try again.
+"
                 "Make sure you're using the ID from your purchase receipt.", ephemeral=True)
             return
 
@@ -684,7 +692,8 @@ async def create_replacement_ticket(interaction: discord.Interaction, invoice_da
                 val = str(item)
             account_details.append(val)
 
-    account_text = "\n".join(account_details) if account_details else "*Details hidden*"
+    account_text = "
+".join(account_details) if account_details else "*Details hidden*"
     price = f"{invoice_data['total']} {invoice_data['currency']}"
     lang = "🇬🇧 English"
 
@@ -815,7 +824,9 @@ async def send_coupon_dm(user, coupon_code, amount, discount_type="fixed"):
         embed.add_field(name="Coupon value", value=f"{amount} EUR", inline=False)
         embed.add_field(name="Coupon code", value=f"```{coupon_code}```", inline=False)
 
-        instructions = "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)\n2. Add your products to the cart\n3. Apply the coupon code at checkout"
+        instructions = "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)
+2. Add your products to the cart
+3. Apply the coupon code at checkout"
         embed.add_field(name="How to use it", value=instructions, inline=False)
 
         embed.set_footer(text="VortexMarket - Valid for 30 days - Single use only")
@@ -824,7 +835,9 @@ async def send_coupon_dm(user, coupon_code, amount, discount_type="fixed"):
 
         warning_embed = discord.Embed(
             title="Single Use Warning",
-            description="This coupon is single use only. Once redeemed, it cannot be used again.\n\nUse it wisely!",
+            description="This coupon is single use only. Once redeemed, it cannot be used again.
+
+Use it wisely!",
             color=0xFEE75C,
             timestamp=datetime.now()
         )
@@ -832,7 +845,10 @@ async def send_coupon_dm(user, coupon_code, amount, discount_type="fixed"):
         await dm_channel.send(embed=warning_embed)
 
         await dm_channel.send(
-            f"**Copy Coupon Code**\n`{coupon_code}`\n\n"
+            f"**Copy Coupon Code**
+`{coupon_code}`
+
+"
             f"[Go to VortexMarket](https://vortexm4rket.mysellauth.com)"
         )
 
@@ -851,76 +867,98 @@ async def monitor_stock():
     global previous_products, previous_product_ids
 
     if not NOTIFY_CHANNEL_ID:
+        print("[STOCK] NOTIFY_CHANNEL_ID not set, skipping stock check")
         return
 
-    guild = bot.get_guild(NOTIFY_GUILD_ID)
-    if not guild:
-        return
+    try:
+        guild = bot.get_guild(NOTIFY_GUILD_ID)
+        if not guild:
+            print(f"[STOCK] Guild {NOTIFY_GUILD_ID} not found")
+            return
 
-    channel = guild.get_channel(NOTIFY_CHANNEL_ID)
-    if not channel:
-        return
+        channel = guild.get_channel(NOTIFY_CHANNEL_ID)
+        if not channel:
+            print(f"[STOCK] Channel {NOTIFY_CHANNEL_ID} not found in guild {guild.name}")
+            return
 
-    products = await sellauth.get_products()
+        print(f"[STOCK] Checking stock... (previous: {len(previous_product_ids)} products)")
+        products = await sellauth.get_products()
 
-    if not products:
-        return
+        if not products:
+            print("[STOCK] No products returned from API")
+            return
 
-    current_product_ids = set()
-    current_products = {}
+        print(f"[STOCK] Fetched {len(products)} products from API")
 
-    for product in products:
-        data = extract_product_data(product)
-        if not data:
-            continue
+        current_product_ids = set()
+        current_products = {}
 
-        pid = data["id"]
-        current_product_ids.add(pid)
-        current_products[pid] = data
+        for product in products:
+            data = extract_product_data(product)
+            if not data:
+                print(f"[STOCK] Failed to extract data for product: {product.get('id', 'unknown')}")
+                continue
+            pid = data["id"]
+            current_product_ids.add(pid)
+            current_products[pid] = data
+            print(f"[STOCK] Product: {data['name']} | Stock: {data['stock']} | Price: {data['price']} {data['currency']}")
 
-    # Skip first run (baseline)
-    if not previous_product_ids:
+        # Skip first run (baseline)
+        if not previous_product_ids:
+            previous_products = current_products.copy()
+            previous_product_ids = current_product_ids.copy()
+            print(f"[INFO] Stock baseline set: {len(current_products)} products")
+            return
+
+        # Check for new products
+        new_products = current_product_ids - previous_product_ids
+        for pid in new_products:
+            data = current_products[pid]
+            embed = create_new_product_embed(data)
+            await channel.send(embed=embed)
+            print(f"[NOTIFY] New product: {data['name']}")
+
+        # Check for stock changes
+        for pid in current_product_ids & previous_product_ids:
+            old_data = previous_products[pid]
+            new_data = current_products[pid]
+
+            old_stock = old_data["stock"]
+            new_stock = new_data["stock"]
+
+            if old_stock != new_stock:
+                print(f"[STOCK] Change detected for {new_data['name']}: {old_stock} -> {new_stock}")
+                if new_stock > 0 and old_stock == 0:
+                    embed = create_restock_embed(new_data, old_stock, new_stock)
+                    await channel.send(embed=embed)
+                    print(f"[NOTIFY] Restocked: {new_data['name']} ({old_stock} -> {new_stock})")
+                elif new_stock > old_stock and old_stock > 0:
+                    embed = create_restock_embed(new_data, old_stock, new_stock)
+                    await channel.send(embed=embed)
+                    print(f"[NOTIFY] Restocked: {new_data['name']} ({old_stock} -> {new_stock})")
+                elif new_stock == 0 and old_stock > 0:
+                    embed = create_out_of_stock_embed(new_data)
+                    await channel.send(embed=embed)
+                    print(f"[NOTIFY] Out of stock: {new_data['name']}")
+                elif 0 < new_stock <= 5 and old_stock > 5:
+                    embed = create_low_stock_embed(new_data)
+                    await channel.send(embed=embed)
+                    print(f"[NOTIFY] Low stock: {new_data['name']} ({new_stock} left)")
+
         previous_products = current_products.copy()
         previous_product_ids = current_product_ids.copy()
-        print(f"[INFO] Stock baseline set: {len(current_products)} products")
-        return
+        print(f"[STOCK] Check complete. Tracked {len(current_products)} products.")
 
-    # Check for new products
-    new_products = current_product_ids - previous_product_ids
-    for pid in new_products:
-        data = current_products[pid]
-        embed = create_new_product_embed(data)
-        await channel.send(embed=embed)
-        print(f"[NOTIFY] New product: {data['name']}")
+    except Exception as e:
+        print(f"[ERROR] Stock monitoring error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
 
-    # Check for stock changes
-    for pid in current_product_ids & previous_product_ids:
-        old_data = previous_products[pid]
-        new_data = current_products[pid]
-
-        old_stock = old_data["stock"]
-        new_stock = new_data["stock"]
-
-        if old_stock != new_stock:
-            if new_stock > 0 and old_stock == 0:
-                embed = create_restock_embed(new_data, old_stock, new_stock)
-                await channel.send(embed=embed)
-                print(f"[NOTIFY] Restocked: {new_data['name']} ({old_stock} -> {new_stock})")
-            elif new_stock > old_stock and old_stock > 0:
-                embed = create_restock_embed(new_data, old_stock, new_stock)
-                await channel.send(embed=embed)
-                print(f"[NOTIFY] Restocked: {new_data['name']} ({old_stock} -> {new_stock})")
-            elif new_stock == 0 and old_stock > 0:
-                embed = create_out_of_stock_embed(new_data)
-                await channel.send(embed=embed)
-                print(f"[NOTIFY] Out of stock: {new_data['name']}")
-            elif 0 < new_stock <= 5 and old_stock > 5:
-                embed = create_low_stock_embed(new_data)
-                await channel.send(embed=embed)
-                print(f"[NOTIFY] Low stock: {new_data['name']} ({new_stock} left)")
-
-    previous_products = current_products.copy()
-    previous_product_ids = current_product_ids.copy()
+@monitor_stock.error
+async def monitor_stock_error(error):
+    print(f"[ERROR] monitor_stock task crashed: {type(error).__name__}: {error}")
+    import traceback
+    traceback.print_exc()
 
 # ============ COMMANDS ============
 
@@ -935,7 +973,7 @@ async def on_ready():
     # Start stock monitoring if configured
     if NOTIFY_CHANNEL_ID and not monitor_stock.is_running():
         monitor_stock.start()
-        print(f"🔍 Stock monitoring started (channel: {NOTIFY_CHANNEL_ID})")
+        print(f"🔍 Stock monitoring started (channel: {NOTIFY_CHANNEL_ID}, interval: {POLL_INTERVAL}s)")
 
 @bot.event
 async def on_disconnect():
@@ -946,7 +984,9 @@ async def on_disconnect():
 async def ticket_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="VortexMarket Support",
-        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.\n\n"
+        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.
+
+"
                     "Response time may vary due to many factors, so please be patient.",
         color=0x1a1a1a
     )
@@ -960,7 +1000,9 @@ async def ticket_command(interaction: discord.Interaction):
 async def setup_command(interaction: discord.Interaction, channel: discord.TextChannel):
     embed = discord.Embed(
         title="VortexMarket Support",
-        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.\n\n"
+        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.
+
+"
                     "Response time may vary due to many factors, so please be patient.",
         color=0x1a1a1a
     )
@@ -1018,20 +1060,36 @@ async def invoice_command(interaction: discord.Interaction):
     # Send as ephemeral (only visible to the staff member who ran it)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.tree.command(name="coupon", description="Generate a replacement coupon for a user (Staff only)", guild=discord.Object(id=GUILD_ID))
-@app_commands.checks.has_permissions(administrator=True)
+
+def has_coupon_role(interaction: discord.Interaction) -> bool:
+    """Check if user has the coupon role or is an administrator."""
+    if interaction.user.guild_permissions.administrator:
+        return True
+    if COUPON_ROLE_ID:
+        coupon_role = interaction.guild.get_role(COUPON_ROLE_ID)
+        if coupon_role and coupon_role in interaction.user.roles:
+            return True
+    # Fallback to staff role if no coupon role is configured
+    staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
+    if staff_role and staff_role in interaction.user.roles:
+        return True
+    return False
+
+
+@bot.tree.command(name="coupon", description="Generate a replacement coupon for a user (Coupon role only)", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(
     user="The user to send the coupon to",
     amount="Coupon value in EUR (e.g., 0.75)",
     prefix="Coupon prefix (default: REPLACE)"
 )
 async def coupon_command(interaction: discord.Interaction, user: discord.User, amount: float, prefix: str = "REPLACE"):
-    # Check if user has staff role
-    staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
-    if staff_role and staff_role not in interaction.user.roles:
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Only staff can use this command.", ephemeral=True)
-            return
+    # Check if user has coupon role
+    if not has_coupon_role(interaction):
+        await interaction.response.send_message(
+            "❌ You don't have permission to use this command. Requires Coupon role or Administrator.", 
+            ephemeral=True
+        )
+        return
 
     # Generate random coupon code
     import random
@@ -1085,8 +1143,10 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
 
     # How to use it
     how_to = (
-        "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)\n"
-        "2. Add your products to the cart\n"
+        "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)
+"
+        "2. Add your products to the cart
+"
         "3. Apply the coupon code at checkout"
     )
     embed.add_field(name="📋 How to use it", value=how_to, inline=False)
@@ -1102,7 +1162,8 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
     # Single use warning
     warning_embed = discord.Embed(
         title="⚠️ Single Use Warning",
-        description="This coupon is **single use only**. Once redeemed, it cannot be used again.\nUse it wisely!",
+        description="This coupon is **single use only**. Once redeemed, it cannot be used again.
+Use it wisely!",
         color=0xFEE75C,
         timestamp=datetime.now()
     )
@@ -1115,13 +1176,15 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
 
         # Confirm to staff
         await interaction.response.send_message(
-            f"✅ Coupon `€{amount:.2f}` sent to {user.mention}!\nCode: `{coupon_code}`",
+            f"✅ Coupon `€{amount:.2f}` sent to {user.mention}!
+Code: `{coupon_code}`",
             ephemeral=True
         )
 
     except discord.Forbidden:
         await interaction.response.send_message(
-            f"❌ Could not DM {user.mention}. They may have DMs disabled.\n"
+            f"❌ Could not DM {user.mention}. They may have DMs disabled.
+"
             f"Coupon code: `{coupon_code}`",
             ephemeral=True
         )
