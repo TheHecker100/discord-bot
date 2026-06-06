@@ -1063,14 +1063,35 @@ async def invoice_command(interaction: discord.Interaction):
 
 def has_coupon_role(interaction: discord.Interaction) -> bool:
     """Check if user has the coupon role or is an administrator."""
+    user = interaction.user
+    guild = interaction.guild
+
+    print(f"[COUPON CHECK] User: {user} (ID: {user.id})")
+    print(f"[COUPON CHECK] User roles: {[r.name for r in user.roles]}")
+    print(f"[COUPON CHECK] Is Administrator: {user.guild_permissions.administrator}")
+    print(f"[COUPON CHECK] COUPON_ROLE_ID set to: {COUPON_ROLE_ID}")
+
     # Administrators always have access
-    if interaction.user.guild_permissions.administrator:
+    if user.guild_permissions.administrator:
+        print(f"[COUPON CHECK] ALLOWED - User is Administrator")
         return True
+
     # Must have the specific coupon role - no fallback to staff role
     if COUPON_ROLE_ID:
-        coupon_role = interaction.guild.get_role(COUPON_ROLE_ID)
-        if coupon_role and coupon_role in interaction.user.roles:
-            return True
+        coupon_role = guild.get_role(COUPON_ROLE_ID)
+        print(f"[COUPON CHECK] Coupon role lookup: {coupon_role}")
+        if coupon_role:
+            has_role = coupon_role in user.roles
+            print(f"[COUPON CHECK] User has coupon role '{coupon_role.name}': {has_role}")
+            if has_role:
+                print(f"[COUPON CHECK] ALLOWED - User has coupon role")
+                return True
+        else:
+            print(f"[COUPON CHECK] ERROR: Coupon role with ID {COUPON_ROLE_ID} not found in guild!")
+    else:
+        print(f"[COUPON CHECK] ERROR: COUPON_ROLE_ID is not set!")
+
+    print(f"[COUPON CHECK] DENIED - User lacks coupon role and is not admin")
     return False
 
 
