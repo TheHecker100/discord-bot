@@ -38,6 +38,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 previous_products = {}  # product_id -> {stock, name, price, etc.}
 previous_product_ids = set()
 
+# Cache for shop images (image_id -> url)
+shop_images_cache = {}
+
 class SellAuthAPI:
     def __init__(self, api_key, shop_id):
         self.api_key = api_key
@@ -190,6 +193,26 @@ class SellAuthAPI:
                     print(f"[ERROR] Failed to fetch products: {resp.status}")
                     return []
 
+    async def get_shop_images(self):
+        """Get all shop images to map image_id -> url"""
+        global shop_images_cache
+        async with aiohttp.ClientSession() as session:
+            url = f"{SELLAUTH_BASE}/shops/{self.shop_id}/images"
+            async with session.get(url, headers=self.headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    images = data.get("data", data if isinstance(data, list) else [])
+                    shop_images_cache = {}
+                    for img in images:
+                        img_id = img.get("id") or img.get("$id")
+                        if img_id:
+                            shop_images_cache[str(img_id)] = img.get("url", "")
+                    print(f"[IMAGES] Cached {len(shop_images_cache)} shop images")
+                    return shop_images_cache
+                else:
+                    print(f"[ERROR] Failed to fetch images: {resp.status}")
+                    return {}
+
     async def create_coupon(self, code, discount, discount_type="fixed", max_uses=1, global_coupon=True):
         async with aiohttp.ClientSession() as session:
             url = f"{SELLAUTH_BASE}/shops/{self.shop_id}/coupons"
@@ -285,11 +308,67 @@ def extract_product_data(product):
     if not description:
         description = product.get("short_description", "")
 
+    # ========== IMAGE EXTRACTION ==========
     image_url = None
-    for key in ["image", "thumbnail", "cover_image", "banner", "photo", "picture", "img", "image_url"]:
+    
+    # 1. Check if product has a direct image URL
+    for key in ["image_url", "image", "thumbnail", "cover_image", "banner", "photo", "picture", "img", "cover"]:
         if key in product and product[key] and isinstance(product[key], str):
-            image_url = product[key]
-            break
+            val = product[key]
+            if val.startswith("http"):
+                image_url = val
+                break
+    
+    # 2. Check for image_id and look up in cache
+    if not image_url:
+        image_id = None
+        for key in ["image_id", "imageId", "thumbnail_id", "cover_image_id", "photo_id", "picture_id", "img_id"]:
+            if key in product and product[key]:
+                image_id = str(product[key])
+                break
+        
+        if image_id and image_id in shop_images_cache:
+            image_url = shop_images_cache[image_id]
+            print(f"[IMAGE] Resolved image_id {image_id} -> {image_url}")
+    
+    # 3. Check nested image object
+    if not image_url:
+        for key in ["image", "thumbnail", "cover"]:
+            if key in product and isinstance(product[key], dict):
+                img_obj = product[key]
+                if "url" in img_obj and img_obj["url"]:
+                    image_url = img_obj["url"]
+                    break
+                if "cloudflare_image_id" in img_obj and img_obj["cloudflare_image_id"]:
+                    # Build Cloudflare delivery URL
+                    cf_id = img_obj["cloudflare_image_id"]
+                    image_url = f"https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/{cf_id}/public"
+                    break
+    
+    # 4. Check for cloudflare_image_id directly on product
+    if not image_url and "cloudflare_image_id" in product and product["cloudflare_image_id"]:
+        cf_id = product["cloudflare_image_id"]
+        image_url = f"https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/{cf_id}/public"
+    
+    # 5. Check items/variants for images
+    if not image_url:
+        for key in ["variants", "options", "items"]:
+            if key in product and isinstance(product[key], list) and len(product[key]) > 0:
+                first = product[key][0]
+                if isinstance(first, dict):
+                    for img_key in ["image_url", "image", "thumbnail", "photo"]:
+                        if img_key in first and first[img_key] and isinstance(first[img_key], str):
+                            if first[img_key].startswith("http"):
+                                image_url = first[img_key]
+                                break
+                    if not image_url and "image_id" in first and str(first["image_id"]) in shop_images_cache:
+                        image_url = shop_images_cache[str(first["image_id"])]
+                    if image_url:
+                        break
+                if image_url:
+                    break
+
+    print(f"[IMAGE] Product '{name}' image_url: {image_url}")
 
     variants = []
     if "variants" in product and isinstance(product["variants"], list):
@@ -379,8 +458,12 @@ def create_new_product_embed(data):
         embed.add_field(name="💰 Price", value=f"{price} {currency}", inline=True)
         embed.add_field(name="📦 Stock", value=f"{stock}", inline=True)
 
+    # Set product image - use set_image for large display at bottom
     if image_url:
         embed.set_image(url=image_url)
+        print(f"[EMBED] Set image for '{name}': {image_url}")
+    else:
+        print(f"[EMBED] No image available for '{name}'")
 
     embed.set_footer(text="VortexMarket")
     return embed
@@ -850,6 +933,10 @@ async def monitor_stock():
             return
 
         print(f"[STOCK] Checking stock... (previous: {len(previous_product_ids)} products)")
+
+        # Fetch shop images first to build cache
+        await sellauth.get_shop_images()
+
         products = await sellauth.get_products()
 
         if not products:
@@ -869,7 +956,7 @@ async def monitor_stock():
             pid = data["id"]
             current_product_ids.add(pid)
             current_products[pid] = data
-            print(f"[STOCK] Product: {data['name']} | Stock: {data['stock']} | Price: {data['price']} {data['currency']}")
+            print(f"[STOCK] Product: {data['name']} | Stock: {data['stock']} | Price: {data['price']} {data['currency']} | Image: {data['image_url']}")
 
         if not previous_product_ids:
             previous_products = current_products.copy()
@@ -1022,9 +1109,6 @@ def has_coupon_role(interaction: discord.Interaction) -> bool:
     user = interaction.user
     guild = interaction.guild
 
-    # NO bypass for administrators, moderators, or anyone else
-    # ONLY the specific COUPON_ROLE_ID grants access
-
     if COUPON_ROLE_ID:
         coupon_role = guild.get_role(COUPON_ROLE_ID)
         if coupon_role:
@@ -1139,6 +1223,9 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
 @bot.tree.command(name="stockstatus", description="Show current stock status", guild=discord.Object(id=GUILD_ID))
 async def stock_status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
+
+    # Fetch shop images first
+    await sellauth.get_shop_images()
 
     products = await sellauth.get_products()
     if not products:
