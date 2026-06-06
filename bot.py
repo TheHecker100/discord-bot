@@ -1063,16 +1063,14 @@ async def invoice_command(interaction: discord.Interaction):
 
 def has_coupon_role(interaction: discord.Interaction) -> bool:
     """Check if user has the coupon role or is an administrator."""
+    # Administrators always have access
     if interaction.user.guild_permissions.administrator:
         return True
+    # Must have the specific coupon role - no fallback to staff role
     if COUPON_ROLE_ID:
         coupon_role = interaction.guild.get_role(COUPON_ROLE_ID)
         if coupon_role and coupon_role in interaction.user.roles:
             return True
-    # Fallback to staff role if no coupon role is configured
-    staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
-    if staff_role and staff_role in interaction.user.roles:
-        return True
     return False
 
 
@@ -1086,7 +1084,7 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
     # Check if user has coupon role
     if not has_coupon_role(interaction):
         await interaction.response.send_message(
-            "❌ You don't have permission to use this command. Requires Coupon role or Administrator.", 
+            "❌ You don't have permission to use this command. Requires the specific Coupon role or Administrator privileges.", 
             ephemeral=True
         )
         return
