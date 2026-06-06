@@ -1157,7 +1157,6 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
     )
 
     embed.add_field(name="🎫 Coupon value", value=f"€{amount:.2f}", inline=False)
-    embed.add_field(name="📝 Debug", value=f"Sent to API: {int(float(amount) * 100)} cents", inline=False)
     embed.add_field(name="🎟️ Coupon code", value=f"`{coupon_code}`", inline=False)
 
     # How to use it
