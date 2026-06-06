@@ -369,8 +369,7 @@ def create_new_product_embed(data):
 
     embed = discord.Embed(
         title=f"{name} Added",
-        description=f"Our product **{name}** has just been added!
-[Buy Now]({product_url})",
+        description=f"Our product **{name}** has just been added!\n[Buy Now]({product_url})",
         color=0x5865F2,
         timestamp=datetime.now()
     )
@@ -386,8 +385,7 @@ def create_new_product_embed(data):
             else:
                 variant_lines.append(str(v))
         if variant_lines:
-            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="
-".join(variant_lines), inline=False)
+            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="\n".join(variant_lines), inline=False)
     else:
         embed.add_field(name="📦 Variant", value=name, inline=True)
         embed.add_field(name="💰 Price", value=f"{price} {currency}", inline=True)
@@ -410,8 +408,7 @@ def create_restock_embed(data, old_stock, new_stock):
 
     embed = discord.Embed(
         title=f"{name} Restocked",
-        description=f"Our product **{name}** has just been restocked!
-[Buy Now]({product_url})",
+        description=f"Our product **{name}** has just been restocked!\n[Buy Now]({product_url})",
         color=0x57F287,
         timestamp=datetime.now()
     )
@@ -427,8 +424,7 @@ def create_restock_embed(data, old_stock, new_stock):
             else:
                 variant_lines.append(str(v))
         if variant_lines:
-            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="
-".join(variant_lines), inline=False)
+            embed.add_field(name="📦 Variant | 💰 Price | 📦 Stock", value="\n".join(variant_lines), inline=False)
     else:
         embed.add_field(name="📦 Variant", value=name, inline=True)
         embed.add_field(name="💰 Price", value=f"{price} {currency}", inline=True)
@@ -530,8 +526,7 @@ class ReplacementInvoiceModal(ui.Modal, title="Replacement Request"):
 
         if not invoice_data or not invoice_data["invoice"]:
             await interaction.followup.send(
-                "❌ **Order not found.** Please check your Invoice ID and try again.
-"
+                "❌ **Order not found.** Please check your Invoice ID and try again.\n"
                 "Make sure you're using the ID from your purchase receipt.", ephemeral=True)
             return
 
@@ -692,8 +687,7 @@ async def create_replacement_ticket(interaction: discord.Interaction, invoice_da
                 val = str(item)
             account_details.append(val)
 
-    account_text = "
-".join(account_details) if account_details else "*Details hidden*"
+    account_text = "\n".join(account_details) if account_details else "*Details hidden*"
     price = f"{invoice_data['total']} {invoice_data['currency']}"
     lang = "🇬🇧 English"
 
@@ -824,9 +818,7 @@ async def send_coupon_dm(user, coupon_code, amount, discount_type="fixed"):
         embed.add_field(name="Coupon value", value=f"{amount} EUR", inline=False)
         embed.add_field(name="Coupon code", value=f"```{coupon_code}```", inline=False)
 
-        instructions = "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)
-2. Add your products to the cart
-3. Apply the coupon code at checkout"
+        instructions = "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)\n2. Add your products to the cart\n3. Apply the coupon code at checkout"
         embed.add_field(name="How to use it", value=instructions, inline=False)
 
         embed.set_footer(text="VortexMarket - Valid for 30 days - Single use only")
@@ -835,9 +827,7 @@ async def send_coupon_dm(user, coupon_code, amount, discount_type="fixed"):
 
         warning_embed = discord.Embed(
             title="Single Use Warning",
-            description="This coupon is single use only. Once redeemed, it cannot be used again.
-
-Use it wisely!",
+            description="This coupon is single use only. Once redeemed, it cannot be used again.\n\nUse it wisely!",
             color=0xFEE75C,
             timestamp=datetime.now()
         )
@@ -845,10 +835,7 @@ Use it wisely!",
         await dm_channel.send(embed=warning_embed)
 
         await dm_channel.send(
-            f"**Copy Coupon Code**
-`{coupon_code}`
-
-"
+            f"**Copy Coupon Code**\n`{coupon_code}`\n\n"
             f"[Go to VortexMarket](https://vortexm4rket.mysellauth.com)"
         )
 
@@ -984,9 +971,7 @@ async def on_disconnect():
 async def ticket_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="VortexMarket Support",
-        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.
-
-"
+        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.\n\n"
                     "Response time may vary due to many factors, so please be patient.",
         color=0x1a1a1a
     )
@@ -1000,9 +985,7 @@ async def ticket_command(interaction: discord.Interaction):
 async def setup_command(interaction: discord.Interaction, channel: discord.TextChannel):
     embed = discord.Embed(
         title="VortexMarket Support",
-        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.
-
-"
+        description="If you need help, click on the option corresponding to the **type of ticket** you want to open.\n\n"
                     "Response time may vary due to many factors, so please be patient.",
         color=0x1a1a1a
     )
@@ -1161,10 +1144,8 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
 
     # How to use it
     how_to = (
-        "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)
-"
-        "2. Add your products to the cart
-"
+        "1. Visit [VortexMarket](https://vortexm4rket.mysellauth.com)\n"
+        "2. Add your products to the cart\n"
         "3. Apply the coupon code at checkout"
     )
     embed.add_field(name="📋 How to use it", value=how_to, inline=False)
@@ -1180,8 +1161,7 @@ async def coupon_command(interaction: discord.Interaction, user: discord.User, a
     # Single use warning
     warning_embed = discord.Embed(
         title="⚠️ Single Use Warning",
-        description="This coupon is **single use only**. Once redeemed, it cannot be used again.
-Use it wisely!",
+        description="This coupon is **single use only**. Once redeemed, it cannot be used again.\nUse it wisely!",
         color=0xFEE75C,
         timestamp=datetime.now()
     )
@@ -1194,15 +1174,13 @@ Use it wisely!",
 
         # Confirm to staff
         await interaction.response.send_message(
-            f"✅ Coupon `€{amount:.2f}` sent to {user.mention}!
-Code: `{coupon_code}`",
+            f"✅ Coupon `€{amount:.2f}` sent to {user.mention}!\nCode: `{coupon_code}`",
             ephemeral=True
         )
 
     except discord.Forbidden:
         await interaction.response.send_message(
-            f"❌ Could not DM {user.mention}. They may have DMs disabled.
-"
+            f"❌ Could not DM {user.mention}. They may have DMs disabled.\n"
             f"Coupon code: `{coupon_code}`",
             ephemeral=True
         )
