@@ -196,22 +196,39 @@ class SellAuthAPI:
     async def get_shop_images(self):
         """Get all shop images to map image_id -> url"""
         global shop_images_cache
-        async with aiohttp.ClientSession() as session:
-            url = f"{SELLAUTH_BASE}/shops/{self.shop_id}/images"
-            async with session.get(url, headers=self.headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    images = data.get("data", data if isinstance(data, list) else [])
-                    shop_images_cache = {}
-                    for img in images:
-                        img_id = img.get("id") or img.get("$id")
-                        if img_id:
-                            shop_images_cache[str(img_id)] = img.get("url", "")
-                    print(f"[IMAGES] Cached {len(shop_images_cache)} shop images")
-                    return shop_images_cache
-                else:
-                    print(f"[ERROR] Failed to fetch images: {resp.status}")
-                    return {}
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{SELLAUTH_BASE}/shops/{self.shop_id}/images"
+                async with session.get(url, headers=self.headers) as resp:
+                    print(f"[IMAGES] Response status: {resp.status}")
+                    if resp.status == 200:
+                        data = await resp.json()
+                        print(f"[IMAGES] Raw response type: {type(data)}")
+                        print(f"[IMAGES] Raw response preview: {str(data)[:500]}")
+
+                        # Handle both dict with 'data' key and direct list
+                        if isinstance(data, dict):
+                            images = data.get("data", [])
+                        elif isinstance(data, list):
+                            images = data
+                        else:
+                            images = []
+
+                        shop_images_cache = {}
+                        for img in images:
+                            if isinstance(img, dict):
+                                img_id = str(img.get("id") or img.get("$id") or "")
+                                img_url = img.get("url", "")
+                                if img_id and img_url:
+                                    shop_images_cache[img_id] = img_url
+                        print(f"[IMAGES] Cached {len(shop_images_cache)} shop images")
+                        return shop_images_cache
+                    else:
+                        print(f"[ERROR] Failed to fetch images: {resp.status}")
+                        return {}
+        except Exception as e:
+            print(f"[ERROR] get_shop_images exception: {type(e).__name__}: {e}")
+            return {}
 
     async def create_coupon(self, code, discount, discount_type="fixed", max_uses=1, global_coupon=True):
         async with aiohttp.ClientSession() as session:
@@ -311,12 +328,20 @@ def extract_product_data(product):
     # ========== IMAGE EXTRACTION ==========
     image_url = None
     
+    # DEBUG: Print all keys that might contain image info
+    image_related_keys = [k for k in product.keys() if "image" in k.lower() or "thumb" in k.lower() or "photo" in k.lower() or "picture" in k.lower() or "cover" in k.lower() or "banner" in k.lower()]
+    if image_related_keys:
+        print(f"[IMAGE DEBUG] Product '{name}' has image-related keys: {image_related_keys}")
+        for k in image_related_keys:
+            print(f"[IMAGE DEBUG]   {k} = {product[k]}")
+
     # 1. Check if product has a direct image URL
     for key in ["image_url", "image", "thumbnail", "cover_image", "banner", "photo", "picture", "img", "cover"]:
         if key in product and product[key] and isinstance(product[key], str):
             val = product[key]
             if val.startswith("http"):
                 image_url = val
+                print(f"[IMAGE] Found direct URL in '{key}': {image_url}")
                 break
     
     # 2. Check for image_id and look up in cache
@@ -325,50 +350,84 @@ def extract_product_data(product):
         for key in ["image_id", "imageId", "thumbnail_id", "cover_image_id", "photo_id", "picture_id", "img_id"]:
             if key in product and product[key]:
                 image_id = str(product[key])
+                print(f"[IMAGE] Found image_id in '{key}': {image_id}")
                 break
         
         if image_id and image_id in shop_images_cache:
             image_url = shop_images_cache[image_id]
             print(f"[IMAGE] Resolved image_id {image_id} -> {image_url}")
+        elif image_id:
+            print(f"[IMAGE] image_id {image_id} NOT found in cache. Cache has: {list(shop_images_cache.keys())[:10]}")
     
     # 3. Check nested image object
     if not image_url:
         for key in ["image", "thumbnail", "cover"]:
             if key in product and isinstance(product[key], dict):
                 img_obj = product[key]
+                print(f"[IMAGE] Found nested image object: {img_obj}")
                 if "url" in img_obj and img_obj["url"]:
                     image_url = img_obj["url"]
+                    print(f"[IMAGE] Got URL from nested object: {image_url}")
                     break
                 if "cloudflare_image_id" in img_obj and img_obj["cloudflare_image_id"]:
-                    # Build Cloudflare delivery URL
                     cf_id = img_obj["cloudflare_image_id"]
                     image_url = f"https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/{cf_id}/public"
+                    print(f"[IMAGE] Built Cloudflare URL: {image_url}")
+                    break
+                # Check for any ID field in the image object
+                for id_key in ["id", "$id", "image_id"]:
+                    if id_key in img_obj and img_obj[id_key]:
+                        img_id = str(img_obj[id_key])
+                        if img_id in shop_images_cache:
+                            image_url = shop_images_cache[img_id]
+                            print(f"[IMAGE] Resolved nested image_id {img_id} -> {image_url}")
+                            break
+                if image_url:
                     break
     
     # 4. Check for cloudflare_image_id directly on product
     if not image_url and "cloudflare_image_id" in product and product["cloudflare_image_id"]:
         cf_id = product["cloudflare_image_id"]
         image_url = f"https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/{cf_id}/public"
-    
-    # 5. Check items/variants for images
+        print(f"[IMAGE] Built Cloudflare URL from product: {image_url}")
+
+    # 5. Check variants/options for images
     if not image_url:
         for key in ["variants", "options", "items"]:
             if key in product and isinstance(product[key], list) and len(product[key]) > 0:
-                first = product[key][0]
-                if isinstance(first, dict):
-                    for img_key in ["image_url", "image", "thumbnail", "photo"]:
-                        if img_key in first and first[img_key] and isinstance(first[img_key], str):
-                            if first[img_key].startswith("http"):
-                                image_url = first[img_key]
-                                break
-                    if not image_url and "image_id" in first and str(first["image_id"]) in shop_images_cache:
-                        image_url = shop_images_cache[str(first["image_id"])]
-                    if image_url:
-                        break
+                for variant in product[key]:
+                    if isinstance(variant, dict):
+                        for img_key in ["image_url", "image", "thumbnail", "photo", "picture"]:
+                            if img_key in variant and variant[img_key] and isinstance(variant[img_key], str):
+                                if variant[img_key].startswith("http"):
+                                    image_url = variant[img_key]
+                                    print(f"[IMAGE] Found image in variant: {image_url}")
+                                    break
+                        if not image_url and "image_id" in variant and str(variant["image_id"]) in shop_images_cache:
+                            image_url = shop_images_cache[str(variant["image_id"])]
+                            print(f"[IMAGE] Resolved variant image_id: {image_url}")
+                        if image_url:
+                            break
                 if image_url:
                     break
 
-    print(f"[IMAGE] Product '{name}' image_url: {image_url}")
+    # 6. Try to construct image URL from shop page scraping (fallback)
+    if not image_url:
+        # Some SellAuth shops have predictable image URLs
+        product_slug = None
+        for key in ["slug", "url_slug", "permalink", "handle"]:
+            if key in product and product[key] and isinstance(product[key], str) and not product[key].isdigit():
+                product_slug = product[key]
+                break
+        
+        if product_slug:
+            # Try common patterns
+            possible_urls = [
+                f"https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/{product_slug}/public",
+            ]
+            # We can't verify without fetching, so skip this for now
+
+    print(f"[IMAGE] FINAL for '{name}': {image_url}")
 
     variants = []
     if "variants" in product and isinstance(product["variants"], list):
@@ -934,8 +993,11 @@ async def monitor_stock():
 
         print(f"[STOCK] Checking stock... (previous: {len(previous_product_ids)} products)")
 
-        # Fetch shop images first to build cache
-        await sellauth.get_shop_images()
+        # Fetch shop images first (wrapped in try/except so it doesn't break if endpoint fails)
+        try:
+            await sellauth.get_shop_images()
+        except Exception as e:
+            print(f"[STOCK] get_shop_images failed (non-critical): {e}")
 
         products = await sellauth.get_products()
 
@@ -944,6 +1006,12 @@ async def monitor_stock():
             return
 
         print(f"[STOCK] Fetched {len(products)} products from API")
+
+        # DEBUG: Print first product raw data to see image fields
+        if products and len(products) > 0:
+            first_product = products[0]
+            print(f"[DEBUG] First product keys: {list(first_product.keys())}")
+            print(f"[DEBUG] First product raw: {str(first_product)[:800]}")
 
         current_product_ids = set()
         current_products = {}
@@ -1225,7 +1293,10 @@ async def stock_status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     # Fetch shop images first
-    await sellauth.get_shop_images()
+    try:
+        await sellauth.get_shop_images()
+    except Exception as e:
+        print(f"[STOCK] get_shop_images failed (non-critical): {e}")
 
     products = await sellauth.get_products()
     if not products:
